@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TestStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+}
+
+enum QuestionType {
+  MCQ
+  SHORT
+  LONG
+}
+
+enum TimerMode {
+  SAME_FOR_ALL
+  CUSTOM_PER_QUESTION
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  GRADED
+}
+
+enum GradingStatus {
+  AUTO_GRADED
+  PENDING
+  MANUALLY_GRADED
+}
+
+model Teacher {
+  id        String   @id @default(cuid())
+  authId    String   @unique
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tests     Test[]
+}
+
+model Test {
+  id                    String     @id @default(cuid())
+  teacherId             String
+  title                 String
+  className             String
+  subject               String
+  instructions          String     @default("")
+  totalDurationMinutes  Int
+  approvalPasswordHash  String
+  startAt               DateTime?
+  endAt                 DateTime?
+  timerMode             TimerMode  @default(SAME_FOR_ALL)
+  defaultQuestionSeconds Int       @default(60)
+  allowSkip             Boolean    @default(true)
+  allowReturnToSkipped  Boolean    @default(true)
+  allowRetake           Boolean    @default(false)
+  disableCopyPaste      Boolean    @default(false)
+  requireFullscreen     Boolean    @default(false)
+  status                TestStatus @default(DRAFT)
+  published             Boolean    @default(false)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  teacher  Teacher          @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  questions Question[]
+  attempts StudentAttempt[]
+
+  @@index([teacherId])
+  @@index([status])
+}
+
+model Question {
+  id              String       @id @default(cuid())
+  testId          String
+  type            QuestionType
+  text            String
+  imageUrl        String?
+  marks           Int          @default(1)
+  orderIndex      Int
+  timerSeconds    Int?
+  explanation     String?
+  shortAnswer     String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  test     Test             @relation(fields: [testId], references: [id], onDelete: Cascade)
+  options  QuestionOption[]
+  answers  StudentAnswer[]
+
+  @@index([testId])
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean  @default(false)
+  orderIndex Int
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+model StudentAttempt {
+  id             String        @id @default(cuid())
+  testId         String
+  fullName       String
+  className      String
+  rollNumber     String
+  email          String?
+  phone          String?
+  status         AttemptStatus @default(IN_PROGRESS)
+  startedAt      DateTime      @default(now())
+  submittedAt    DateTime?
+  totalScore     Float         @default(0)
+  maxScore       Float         @default(0)
+  tabSwitchCount Int           @default(0)
+  sessionToken   String        @unique @default(cuid())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  test    Test            @relation(fields: [testId], references: [id], onDelete: Cascade)
+  answers StudentAnswer[]
+
+  @@unique([testId, rollNumber])
+  @@index([testId])
+}
+
+model StudentAnswer {
+  id              String        @id @default(cuid())
+  attemptId       String
+  questionId      String
+  selectedOptionId String?
+  textAnswer      String?
+  isSkipped       Boolean       @default(false)
+  marksAwarded    Float?
+  gradingStatus   GradingStatus @default(PENDING)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  attempt  StudentAttempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  feedback GradingFeedback?
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+}
+
+model GradingFeedback {
+  id        String   @id @default(cuid())
+  answerId  String   @unique
+  feedback  String   @default("")
+  gradedBy  String?
+  gradedAt  DateTime @default(now())
+
+  answer StudentAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+}
