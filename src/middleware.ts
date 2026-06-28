@@ -1,53 +1,100 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createMiddlewareClient } from "@/lib/supabase/middleware";
+
+const LOGIN_PATH = "/login";
+const DASHBOARD_PATH = "/dashboard";
+
+function isProtectedPath(pathname: string): boolean {
+  return pathname === DASHBOARD_PATH || pathname.startsWith(`${DASHBOARD_PATH}/`);
+}
+
+function isLoginPath(pathname: string): boolean {
+  return pathname === LOGIN_PATH;
+}
+
+function redirectToLogin(request: NextRequest): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = LOGIN_PATH;
+  url.searchParams.set("redirect", request.nextUrl.pathname);
+  return NextResponse.redirect(url);
+}
+
+function redirectToDashboard(request: NextRequest): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = DASHBOARD_PATH;
+  url.search = "";
+  return NextResponse.redirect(url);
+}
+
+function logMiddlewareError(message: string, error?: unknown) {
+  if (error instanceof Error) {
+    console.error(`[middleware] ${message}:`, error.message);
+    return;
+  }
+
+  console.error(`[middleware] ${message}`);
+}
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  const { pathname } = request.nextUrl;
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
+  try {
+    const clientResult = createMiddlewareClient(request);
+
+    if (!clientResult.ok) {
+      logMiddlewareError(clientResult.error);
+
+      if (isProtectedPath(pathname)) {
+        return redirectToLogin(request);
+      }
+
+      return NextResponse.next();
     }
-  );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const { supabase, response } = clientResult;
 
-  const isDashboard = request.nextUrl.pathname.startsWith("/dashboard");
-  const isLogin = request.nextUrl.pathname === "/login";
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-  if (isDashboard && !user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("redirect", request.nextUrl.pathname);
-    return NextResponse.redirect(url);
+    if (authError) {
+      logMiddlewareError("Supabase auth lookup failed", authError);
+
+      if (isProtectedPath(pathname)) {
+        return redirectToLogin(request);
+      }
+
+      return response;
+    }
+
+    if (isProtectedPath(pathname) && !user) {
+      return redirectToLogin(request);
+    }
+
+    if (isLoginPath(pathname) && user) {
+      return redirectToDashboard(request);
+    }
+
+    return response;
+  } catch (error) {
+    logMiddlewareError("Unhandled middleware error", error);
+
+    if (isProtectedPath(pathname)) {
+      return redirectToLogin(request);
+    }
+
+    return NextResponse.next();
   }
-
-  if (isLogin && user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
-
-  return supabaseResponse;
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login"],
+  matcher: [
+    /*
+     * Only run auth middleware on teacher routes.
+     * Static assets, API routes, public test pages, and Next internals are excluded.
+     */
+    "/dashboard/:path*",
+    "/login",
+  ],
 };
