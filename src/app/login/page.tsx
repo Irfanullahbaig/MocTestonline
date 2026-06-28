@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { signIn, signUp } from "@/lib/actions/teacher";
@@ -9,24 +9,48 @@ import { Button, Input, Card } from "@/components/ui";
 function LoginForm() {
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") ?? "/dashboard";
+  const urlError = searchParams.get("error");
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (urlError) {
+      setError(urlError);
+    }
+  }, [urlError]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setSuccess("");
+
     const formData = new FormData(e.currentTarget);
     formData.set("redirect", redirect);
 
-    const result =
-      mode === "login"
-        ? await signIn(formData)
-        : await signUp(formData);
+    if (mode === "login") {
+      const result = await signIn(formData);
+      if (result && !result.success) {
+        setError(result.error);
+        setLoading(false);
+      }
+      return;
+    }
 
-    if (result && !result.success) {
+    const result = await signUp(formData);
+    if (!result.success) {
       setError(result.error);
+      setLoading(false);
+      return;
+    }
+
+    if (result.needsEmailConfirmation) {
+      setSuccess(
+        `Account created. Check ${result.email} for a confirmation link before signing in.`
+      );
+      setMode("login");
       setLoading(false);
     }
   }
@@ -49,7 +73,11 @@ function LoginForm() {
           <button
             key={m}
             type="button"
-            onClick={() => setMode(m)}
+            onClick={() => {
+              setMode(m);
+              setError("");
+              setSuccess("");
+            }}
             className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
               mode === m
                 ? "bg-white text-slate-900 shadow-sm"
@@ -80,6 +108,11 @@ function LoginForm() {
           minLength={6}
           placeholder="••••••••"
         />
+        {success && (
+          <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
+            {success}
+          </p>
+        )}
         {error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}

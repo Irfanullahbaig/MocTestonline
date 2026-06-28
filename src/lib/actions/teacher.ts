@@ -7,6 +7,7 @@ import { requireTeacher } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { formatAuthError } from "@/lib/auth-errors";
 import { calculateMaxScore } from "@/lib/utils";
 import type { TestStatus, TimerMode } from "@prisma/client";
 
@@ -25,6 +26,10 @@ export type ActionResult<T = void> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+export type SignUpResult =
+  | { success: true; needsEmailConfirmation: true; email: string }
+  | { success: false; error: string };
+
 export async function signIn(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
@@ -34,26 +39,30 @@ export async function signIn(formData: FormData) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    return { success: false as const, error: error.message };
+    return { success: false as const, error: formatAuthError(error.message) };
   }
 
   redirect(redirectTo);
 }
 
-export async function signUp(formData: FormData) {
+export async function signUp(formData: FormData): Promise<SignUpResult> {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
   const name = formData.get("name") as string;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: name } },
+    options: {
+      data: { full_name: name },
+      emailRedirectTo: `${appUrl}/auth/callback?next=/dashboard`,
+    },
   });
 
   if (error) {
-    return { success: false as const, error: error.message };
+    return { success: false, error: formatAuthError(error.message) };
   }
 
   if (data.user) {
@@ -68,7 +77,15 @@ export async function signUp(formData: FormData) {
     });
   }
 
-  redirect("/dashboard");
+  if (data.session) {
+    redirect("/dashboard");
+  }
+
+  return {
+    success: true,
+    needsEmailConfirmation: true,
+    email,
+  };
 }
 
 export async function signOut() {

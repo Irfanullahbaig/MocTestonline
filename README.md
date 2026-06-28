@@ -44,8 +44,10 @@ npm install
 
 1. Create a project at [supabase.com](https://supabase.com)
 2. Enable Email auth under Authentication → Providers
-3. Create a Storage bucket named `question-images` (public)
-4. Copy your project URL, anon key, and service role key
+3. **Email delivery (required for signup):** Supabase’s default mailer allows only **2 auth emails per hour**. For development, disable **Confirm email** under Authentication → Providers → Email. For production, configure **custom SMTP** under Authentication → Emails → SMTP Settings (Resend, SendGrid, etc.).
+4. Add your app URL to **Authentication → URL Configuration → Redirect URLs**: `http://localhost:3000/auth/callback` and your Vercel domain (e.g. `https://your-app.vercel.app/auth/callback`)
+5. Create a Storage bucket named `question-images` (public)
+6. Copy your project URL, anon key, and service role key
 
 ### 3. Environment variables
 
